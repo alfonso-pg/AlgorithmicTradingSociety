@@ -1,0 +1,94 @@
+/*
+Uses the qnandl time series API to pull financial data about a specific company. Currently set to take the open, high, low, close, and volume and output 
+from the previous dayt as a String Array
+*/
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.IO;
+using System.Net;
+using System.Threading.Tasks;
+using System.Data.SqlClient;
+
+
+namespace PullData
+{
+    class Program
+    { 
+
+        static void Main(string[] args)
+        {
+            String Data = GetData();
+            String[] Data2 = ParseData(Data);
+            foreach(String value in Data2)
+            {
+                Console.WriteLine(value);
+            }
+            Console.ReadKey();
+
+        }
+
+        static String GetData() //Returns the previous day's data a single CSV string
+        {
+
+            DateTime dateNow = DateTime.UtcNow.AddDays(-1);
+            String currentDate = dateNow.ToString("yyyy-MM-dd");
+
+
+            //all possible arugments for the quandl data API
+            String database_code = "XNYS";              //Code identifying  the database to which the dataset belongs, ie New York Stock Exchange
+            String dataset_code = "A";              //Code identifying the dataset, ie the ticker
+            int limit = 1;                             //Get the first n rows of the dataset
+            int column_index = 5;                      //Get the first n columns of the dataset, 0 is the date column and is always returned
+            String start_date = currentDate;           //'yyyy-mm-dd'
+            String end_date = currentDate;             //'yyyy-mm-dd'
+
+            String APIkey = "DtpGRxRBef5UhwSaXS8U";     //api key generated for Edward Stables, include new key for society account
+            String dataString = null;
+
+            try
+            {
+                using (WebClient API = new WebClient())
+                {
+                    String address = $"https://www.quandl.com/api/v3/datasets/{database_code}/{dataset_code}.csv?exclude_column_names=true&start_date={start_date}?end_date={end_date}?limit={limit}?column_index={column_index}&api_key={APIkey}";
+                    Console.WriteLine(address);
+                    dataString = API.DownloadString(address);
+                    Console.WriteLine(dataString);
+                    return dataString;
+                }
+            }
+            catch (Exception e)
+            {
+                dataString = "API failed";
+                return dataString;
+            }
+        }
+        static String[] ParseData(String Data) //returns the CSV string as an array of 6 strings
+        {
+
+            String[] DataOut = new String[] { "", "", "", "", "", "" };
+            int index = 0;
+            StringBuilder sb = new StringBuilder();
+            foreach(char element in Data)
+            {
+                if(index < 6) {
+                    if (element != ',')
+                    {
+                        sb.Append(element);
+                    }
+                    else
+                    {
+                        string tempst = sb.ToString();
+                        sb.Clear();
+                        DataOut[index] = tempst;
+                        index++;
+                    }
+                }
+               
+            }
+            return DataOut;
+        }
+    }
+}
