@@ -1,7 +1,10 @@
 /*
-Uses the qnandl time series API to pull financial data about a specific company. Currently set to take the open, high, low, close, and volume and output 
-from the previous dayt as a String Array
+Runs as a function on Azure. Uses the quandl API to pull data about a single company and add it to the appropriate table in the Azure
+SQL database. Saves the Date, open, close, high, low, and volume values.
 */
+
+#r "System.Configuration"
+#r "System.Data"
 
 using System;
 using System.Collections.Generic;
@@ -9,86 +12,137 @@ using System.Linq;
 using System.Text;
 using System.IO;
 using System.Net;
-using System.Threading.Tasks;
+using System.Configuration;
 using System.Data.SqlClient;
+using System.Threading.Tasks;
 
-
-namespace PullData
+public struct dataret 	//struct containing all of the data which is handed to the database
 {
-    class Program
-    { 
+    public String Date;
+    public String open;
+    public String high;
+    public String low;
+    public String close;
+    public String volume;
 
-        static void Main(string[] args)
+    public void setnull(){	//sets all values to nothing to avoid compilation errors
+        Date = "";
+        open = "";
+        high = "";
+        low = "";
+        close = "";
+        volume = "";
+    }
+    public void setDate(){//appends ' to the start and end of the date to allow SQL server to take the value as a date not an int 
+        Date = "\'" + Date + "\'"; 
+    }
+}
+
+public static async Task Run(TimerInfo myTimer, TraceWriter log)
+{
+    String schema = "";			//schema used to organise tables, also used as database reference for quandl
+    String table = "";				//ticker used to select table and as a reference for quandl
+    String data = GetData(schema, table);
+    if(data.Substring(0,6) == "Failed")		//ends runtime if valid datastring is not returned
+    {
+        log.Info(data);
+    }
+    else
+    {
+        dataret Data2 = new dataret();
+        Data2 = ParseData(data, log);
+
+        var str = ConfigurationManager.ConnectionStrings[""].ConnectionString; //grabs connection string from system files (in Azure; input connection string into "")
+        
+        using (SqlConnection conn = new SqlConnection(str))		//creates SqlConnection object and initialises with the connection string
         {
-            String Data = GetData();
-            String[] Data2 = ParseData(Data);
-            foreach(String value in Data2)
+            conn.Open();										
+            var text = $"INSERT INTO [{schema}].[{table}] VALUES({Data2.Date},{Data2.open},{Data2.high},{Data2.low},{Data2.close},{Data2.volume})"; //creates command for the database
+            
+            using (SqlCommand cmd = new SqlCommand(text, conn))	//creates SqlCommand object with command and connection				
             {
-                Console.WriteLine(value);
+                // Execute the command and log the # rows affected.
+                var rows = await cmd.ExecuteNonQueryAsync();	//inputs command and awaits response
+                log.Info($"{rows} rows were updated");		//confirms that the rows were updated
             }
-            Console.ReadKey();
-
-        }
-
-        static String GetData() //Returns the previous day's data a single CSV string
-        {
-
-            DateTime dateNow = DateTime.UtcNow.AddDays(-1);
-            String currentDate = dateNow.ToString("yyyy-MM-dd");
-
-
-            //all possible arugments for the quandl data API
-            String database_code = "XNYS";              //Code identifying  the database to which the dataset belongs, ie New York Stock Exchange
-            String dataset_code = "A";              //Code identifying the dataset, ie the ticker
-            int limit = 1;                             //Get the first n rows of the dataset
-            int column_index = 5;                      //Get the first n columns of the dataset, 0 is the date column and is always returned
-            String start_date = currentDate;           //'yyyy-mm-dd'
-            String end_date = currentDate;             //'yyyy-mm-dd'
-
-            String APIkey = "DtpGRxRBef5UhwSaXS8U";     //api key generated for Edward Stables, include new key for society account
-            String dataString = null;
-
-            try
-            {
-                using (WebClient API = new WebClient())
-                {
-                    String address = $"https://www.quandl.com/api/v3/datasets/{database_code}/{dataset_code}.csv?exclude_column_names=true&start_date={start_date}?end_date={end_date}?limit={limit}?column_index={column_index}&api_key={APIkey}";
-                    Console.WriteLine(address);
-                    dataString = API.DownloadString(address);
-                    Console.WriteLine(dataString);
-                    return dataString;
-                }
-            }
-            catch (Exception e)
-            {
-                dataString = "API failed";
-                return dataString;
-            }
-        }
-        static String[] ParseData(String Data) //returns the CSV string as an array of 6 strings
-        {
-
-            String[] DataOut = new String[] { "", "", "", "", "", "" };
-            int index = 0;
-            StringBuilder sb = new StringBuilder();
-            foreach(char element in Data)
-            {
-                if(index < 6) {
-                    if (element != ',')
-                    {
-                        sb.Append(element);
-                    }
-                    else
-                    {
-                        string tempst = sb.ToString();
-                        sb.Clear();
-                        DataOut[index] = tempst;
-                        index++;
-                    }
-                }
-               
-            }
-            return DataOut;
         }
     }
+    
+}
+
+public static String GetData(String database_code, String dataset_code) //Returns the previous day's data a single CSV string
+{
+    DateTime dateNow = DateTime.UtcNow.AddDays(-1);		//ensures that data is only given for the previous day
+    String currentDate = dateNow.ToString("yyyy-MM-dd");	
+
+
+
+    String start_date = currentDate;           //'yyyy-mm-dd'
+    String end_date = currentDate;             //'yyyy-mm-dd'
+
+    String APIkey = "";     //quandl API key should be inserted here
+    String dataString = null;
+
+    try
+    {
+        using (WebClient API = new WebClient())		//creates webclient object
+        {
+            String address = $"https://www.quandl.com/api/v3/datasets/{database_code}/{dataset_code}.csv?exclude_column_names=true&start_date={start_date}?end_date={end_date}&api_key={APIkey}";
+            //^produces the API call in the correct format
+            dataString = API.DownloadString(address);
+			//calls the API
+            return dataString;
+        }
+    }
+    catch (Exception e)
+    {
+        return $"Failed: {e}";
+    }
+}
+        
+public static dataret ParseData(String Data, TraceWriter log) //returns the CSV string as an array of 6 strings
+{
+
+    dataret parsed = new dataret(); //creates datared object
+    parsed.setnull(); //initialises values a blank
+    String[] DataOut = new String[6]{"","","","","",""}; //temporary array
+
+    int index = 0;	//keeps track of data
+    StringBuilder sb = new StringBuilder();	
+    foreach(char element in Data)  //runs through all characters in the CSV data and adds it to the dataret object
+    {
+        if(index < 6) {
+            if (element != ',')
+            {
+                sb.Append(element);
+            }
+            else
+            {
+                switch(index){
+                    case 0:
+                       parsed.Date = sb.ToString();
+                       break; 
+                    case 1:
+                       parsed.open = sb.ToString();
+                       break;
+                    case 2:
+                       parsed.high = sb.ToString();
+                       break;
+                    case 3:
+                       parsed.low = sb.ToString();
+                       break;
+                    case 4:
+                       parsed.close = sb.ToString();
+                       break;
+                    case 5:
+                       parsed.volume = sb.ToString();
+                       break;
+                }
+                sb.Clear();
+                index++;
+            }
+        }
+    }
+    parsed.setDate();	//converts the date value in the dataret object to the correct format
+    return parsed;
 }
