@@ -1,6 +1,6 @@
 /*
-Runs as a function on Azure. Uses the quandl API to pull data about a single company and add it to the appropriate table in the Azure
-SQL database. Saves the Date, open, close, high, low, and volume values.
+Runs as a function on Azure. Uses the quandl API to pull data from a table of companies and add it to the appropriate table in the Azure
+SQL database. Saves the Date, price, last_close, high, low, and volume, change, and percentage variation values.
 */
 #r "System.Configuration"
 #r "System.Data"
